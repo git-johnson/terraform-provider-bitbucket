@@ -2,9 +2,6 @@ package bitbucket
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	"io"
 	"log"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
@@ -14,6 +11,10 @@ import (
 func dataGroup() *schema.Resource {
 	return &schema.Resource{
 		ReadWithoutTimeout: dataReadGroup,
+
+		DeprecationMessage: "The Bitbucket 1.0 Groups API has been permanently deprecated by Atlassian " +
+			"with no replacement. This data source will be removed in a future major version of the provider. " +
+			"Remove it from your configuration.",
 
 		Schema: map[string]*schema.Schema{
 			"workspace": {
@@ -45,40 +46,7 @@ func dataGroup() *schema.Resource {
 }
 
 func dataReadGroup(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	client := m.(Clients).httpClient
-
-	workspace := d.Get("workspace").(string)
-	slug := d.Get("slug").(string)
-
-	groupsReq, _ := client.Get(fmt.Sprintf("1.0/groups/%s/%s", workspace, slug))
-
-	if groupsReq.Body == nil {
-		return diag.Errorf("error reading Group (%s): empty response", d.Id())
-	}
-
-	var grp *UserGroup
-
-	body, readerr := io.ReadAll(groupsReq.Body)
-	if readerr != nil {
-		return diag.FromErr(readerr)
-	}
-
-	log.Printf("[DEBUG] Group Response JSON: %v", string(body))
-
-	decodeerr := json.Unmarshal(body, &grp)
-	if decodeerr != nil {
-		return diag.FromErr(decodeerr)
-	}
-
-	log.Printf("[DEBUG] Group Response Decoded: %#v", grp)
-
-	d.SetId(fmt.Sprintf("%s/%s", workspace, slug))
-	d.Set("workspace", workspace)
-	d.Set("slug", grp.Slug)
-	d.Set("name", grp.Name)
-	d.Set("auto_add", grp.AutoAdd)
-	d.Set("permission", grp.Permission)
-	d.Set("email_forwarding_disabled", grp.EmailForwardingDisabled)
-
+	log.Printf("[WARN] data.bitbucket_group: Bitbucket 1.0 Groups API is permanently deprecated, removing from state")
+	d.SetId("")
 	return nil
 }

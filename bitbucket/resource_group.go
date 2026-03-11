@@ -5,10 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
-	"strings"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
@@ -32,6 +29,10 @@ func resourceGroup() *schema.Resource {
 		Importer: &schema.ResourceImporter{
 			StateContext: schema.ImportStatePassthroughContext,
 		},
+
+		DeprecationMessage: "The Bitbucket 1.0 Groups API has been permanently deprecated by Atlassian " +
+			"with no replacement. This resource will be removed in a future major version of the provider. " +
+			"Remove it from your configuration and run `terraform state rm <address>` to drop it from state.",
 
 		Schema: map[string]*schema.Schema{
 			"workspace": {
@@ -65,80 +66,13 @@ func resourceGroup() *schema.Resource {
 }
 
 func resourceGroupsCreate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	client := m.(Clients).httpClient
-
-	group := expandGroup(d)
-	log.Printf("[DEBUG] Group Request: %#v", group)
-
-	workspace := d.Get("workspace").(string)
-	body := []byte(fmt.Sprintf("name=%s", group.Name))
-	groupReq, err := client.PostNonJson(fmt.Sprintf("1.0/groups/%s", workspace), bytes.NewBuffer(body))
-	if err != nil {
-		return diag.FromErr(err)
-	}
-
-	body, readerr := io.ReadAll(groupReq.Body)
-	if readerr != nil {
-		return diag.FromErr(readerr)
-	}
-
-	log.Printf("[DEBUG] Group Req Response JSON: %v", string(body))
-
-	decodeerr := json.Unmarshal(body, &group)
-	if decodeerr != nil {
-		return diag.FromErr(decodeerr)
-	}
-
-	log.Printf("[DEBUG] Group Req Response Decoded: %#v", group)
-
-	d.SetId(fmt.Sprintf("%s/%s", workspace, group.Slug))
-
-	return resourceGroupsRead(ctx, d, m)
+	return diag.Errorf("bitbucket_group: the Bitbucket 1.0 Groups API has been permanently " +
+		"deprecated. New groups cannot be created. Remove this resource from your configuration.")
 }
 
 func resourceGroupsRead(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	client := m.(Clients).httpClient
-
-	workspace, slug, err := groupId(d.Id())
-	if err != nil {
-		return diag.FromErr(err)
-	}
-
-	groupsReq, _ := client.Get(fmt.Sprintf("1.0/groups/%s/%s", workspace, slug))
-
-	if groupsReq.StatusCode == http.StatusNotFound {
-		log.Printf("[WARN] Group (%s) not found, removing from state", d.Id())
-		d.SetId("")
-		return nil
-	}
-
-	if groupsReq.Body == nil {
-		return diag.Errorf("error reading Group (%s): empty response", d.Id())
-	}
-
-	var grp *UserGroup
-
-	body, readerr := io.ReadAll(groupsReq.Body)
-	if readerr != nil {
-		return diag.FromErr(readerr)
-	}
-
-	log.Printf("[DEBUG] Groups Response JSON: %v", string(body))
-
-	decodeerr := json.Unmarshal(body, &grp)
-	if decodeerr != nil {
-		return diag.FromErr(decodeerr)
-	}
-
-	log.Printf("[DEBUG] Groups Response Decoded: %#v", grp)
-
-	d.Set("workspace", workspace)
-	d.Set("slug", grp.Slug)
-	d.Set("name", grp.Name)
-	d.Set("auto_add", grp.AutoAdd)
-	d.Set("permission", grp.Permission)
-	d.Set("email_forwarding_disabled", grp.EmailForwardingDisabled)
-
+	log.Printf("[WARN] Group (%s): Bitbucket 1.0 Groups API is permanently deprecated, removing from state", d.Id())
+	d.SetId("")
 	return nil
 }
 
@@ -164,20 +98,7 @@ func resourceGroupsUpdate(ctx context.Context, d *schema.ResourceData, m interfa
 }
 
 func resourceGroupsDelete(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	client := m.(Clients).httpClient
-
-	workspace, slug, err := groupId(d.Id())
-	if err != nil {
-		return diag.FromErr(err)
-	}
-
-	_, err = client.Delete(fmt.Sprintf("1.0/groups/%s/%s", workspace, slug))
-
-	if err != nil {
-		return diag.FromErr(err)
-	}
-
-	return diag.FromErr(err)
+	return nil
 }
 
 func expandGroup(d *schema.ResourceData) *UserGroup {
@@ -198,14 +119,4 @@ func expandGroup(d *schema.ResourceData) *UserGroup {
 	}
 
 	return group
-}
-
-func groupId(id string) (string, string, error) {
-	parts := strings.Split(id, "/")
-
-	if len(parts) != 2 {
-		return "", "", fmt.Errorf("unexpected format of ID (%q), expected WORKSPACE-ID/GROUP-SLUG-ID", id)
-	}
-
-	return parts[0], parts[1], nil
 }
