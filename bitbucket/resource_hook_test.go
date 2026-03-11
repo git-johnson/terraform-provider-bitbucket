@@ -31,6 +31,7 @@ func TestAccBitbucketHook_basic(t *testing.T) {
 				Check: resource.ComposeTestCheckFunc(
 					testAccCheckBitbucketHookExists(resourceName, &hook),
 					resource.TestCheckResourceAttrPair(resourceName, "repository", "bitbucket_repository.test", "name"),
+					resource.TestCheckResourceAttr(resourceName, "workspace", testUser),
 					resource.TestCheckResourceAttr(resourceName, "description", "Test hook for terraform"),
 					resource.TestCheckResourceAttr(resourceName, "url", "https://httpbin.org"),
 					resource.TestCheckResourceAttr(resourceName, "skip_cert_verification", "true"),
@@ -78,6 +79,31 @@ func TestAccBitbucketHook_basic(t *testing.T) {
 	})
 }
 
+func TestAccBitbucketHook_ownerBackwardCompat(t *testing.T) {
+	var hook Hook
+	resourceName := "bitbucket_hook.test"
+	testUser := os.Getenv("BITBUCKET_TEAM")
+	rName := acctest.RandomWithPrefix("tf-test")
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:     func() { testAccPreCheck(t) },
+		Providers:    testAccProviders,
+		CheckDestroy: testAccCheckBitbucketHookDestroy,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccBitbucketHookOwnerConfig(testUser, rName),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckBitbucketHookExists(resourceName, &hook),
+					resource.TestCheckResourceAttrPair(resourceName, "repository", "bitbucket_repository.test", "name"),
+					resource.TestCheckResourceAttr(resourceName, "description", "Test hook for terraform"),
+					resource.TestCheckResourceAttr(resourceName, "url", "https://httpbin.org"),
+					resource.TestCheckResourceAttr(resourceName, "events.#", "1"),
+				),
+			},
+		},
+	})
+}
+
 func TestEncodesJsonCompletely(t *testing.T) {
 	hook := &Hook{
 		UUID:        uuid.NewV4().String(),
@@ -112,7 +138,11 @@ func testAccCheckBitbucketHookDestroy(s *terraform.State) error {
 			continue
 		}
 
-		response, err := client.Get(fmt.Sprintf("2.0/repositories/%s/%s/hooks/%s", rs.Primary.Attributes["owner"], rs.Primary.Attributes["repository"], url.PathEscape(rs.Primary.Attributes["uuid"])))
+		workspace := rs.Primary.Attributes["workspace"]
+		if workspace == "" {
+			workspace = rs.Primary.Attributes["owner"]
+		}
+		response, err := client.Get(fmt.Sprintf("2.0/repositories/%s/%s/hooks/%s", workspace, rs.Primary.Attributes["repository"], url.PathEscape(rs.Primary.Attributes["uuid"])))
 
 		if err == nil {
 			return fmt.Errorf("The resource was found should have errored")
@@ -146,6 +176,26 @@ resource "bitbucket_repository" "test" {
   name  = %[2]q
 }
 resource "bitbucket_hook" "test" {
+  workspace              = %[1]q
+  repository             = bitbucket_repository.test.name
+  description            = "Test hook for terraform"
+  url                    = "https://httpbin.org"
+  skip_cert_verification = true
+
+  events = [
+  	"repo:push",
+  ]
+}
+`, testUser, rName)
+}
+
+func testAccBitbucketHookOwnerConfig(testUser, rName string) string {
+	return fmt.Sprintf(`
+resource "bitbucket_repository" "test" {
+  owner = %[1]q
+  name  = %[2]q
+}
+resource "bitbucket_hook" "test" {
   owner                  = %[1]q
   repository             = bitbucket_repository.test.name
   description            = "Test hook for terraform"
@@ -166,7 +216,7 @@ resource "bitbucket_repository" "test" {
   name  = %[2]q
 }
 resource "bitbucket_hook" "test" {
-  owner                  = %[1]q
+  workspace              = %[1]q
   repository             = bitbucket_repository.test.name
   description            = "Test hook for terraform Updated"
   url                    = "https://httpbin.org"
@@ -188,6 +238,10 @@ func testAccBitbucketHookImportStateIdFunc(resourceName string) resource.ImportS
 		if !ok {
 			return "", fmt.Errorf("Not found: %s", resourceName)
 		}
-		return fmt.Sprintf("%s/%s/%s", rs.Primary.Attributes["owner"], rs.Primary.Attributes["repository"], rs.Primary.ID), nil
+		workspace := rs.Primary.Attributes["workspace"]
+		if workspace == "" {
+			workspace = rs.Primary.Attributes["owner"]
+		}
+		return fmt.Sprintf("%s/%s/%s", workspace, rs.Primary.Attributes["repository"], rs.Primary.ID), nil
 	}
 }

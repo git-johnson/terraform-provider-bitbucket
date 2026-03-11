@@ -39,9 +39,10 @@ func resourceHook() *schema.Resource {
 			State: func(d *schema.ResourceData, meta interface{}) ([]*schema.ResourceData, error) {
 				idParts := strings.Split(d.Id(), "/")
 				if len(idParts) != 3 || idParts[0] == "" || idParts[1] == "" || idParts[2] == "" {
-					return nil, fmt.Errorf("unexpected format of ID (%q), expected OWNER/REPO/HOOK-ID", d.Id())
+					return nil, fmt.Errorf("unexpected format of ID (%q), expected WORKSPACE/REPO/HOOK-ID", d.Id())
 				}
 				d.SetId(idParts[2])
+				d.Set("workspace", idParts[0])
 				d.Set("owner", idParts[0])
 				d.Set("repository", idParts[1])
 				return []*schema.ResourceData{d}, nil
@@ -49,10 +50,17 @@ func resourceHook() *schema.Resource {
 		},
 
 		Schema: map[string]*schema.Schema{
-			"owner": {
+			"workspace": {
 				Type:     schema.TypeString,
 				Required: true,
 				ForceNew: true,
+			},
+			"owner": {
+				Type:       schema.TypeString,
+				Optional:   true,
+				ForceNew:   true,
+				Computed:   true,
+				Deprecated: "Use workspace instead",
 			},
 			"repository": {
 				Type:     schema.TypeString,
@@ -164,8 +172,13 @@ func resourceHookCreate(ctx context.Context, d *schema.ResourceData, m interface
 		return diag.FromErr(err)
 	}
 
+	workspace := d.Get("workspace").(string)
+	if workspace == "" {
+		workspace = d.Get("owner").(string)
+	}
+
 	hookReq, err := client.Post(fmt.Sprintf("2.0/repositories/%s/%s/hooks",
-		d.Get("owner").(string),
+		workspace,
 		d.Get("repository").(string),
 	), bytes.NewBuffer(payload))
 
@@ -190,8 +203,13 @@ func resourceHookCreate(ctx context.Context, d *schema.ResourceData, m interface
 func resourceHookRead(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client := m.(Clients).httpClient
 
+	workspace := d.Get("workspace").(string)
+	if workspace == "" {
+		workspace = d.Get("owner").(string)
+	}
+
 	hookReq, err := client.Get(fmt.Sprintf("2.0/repositories/%s/%s/hooks/%s",
-		d.Get("owner").(string),
+		workspace,
 		d.Get("repository").(string),
 		url.PathEscape(d.Id()),
 	))
@@ -245,8 +263,13 @@ func resourceHookUpdate(ctx context.Context, d *schema.ResourceData, m interface
 		return diag.FromErr(err)
 	}
 
+	workspace := d.Get("workspace").(string)
+	if workspace == "" {
+		workspace = d.Get("owner").(string)
+	}
+
 	_, err = client.Put(fmt.Sprintf("2.0/repositories/%s/%s/hooks/%s",
-		d.Get("owner").(string),
+		workspace,
 		d.Get("repository").(string),
 		url.PathEscape(d.Id()),
 	), bytes.NewBuffer(payload))
@@ -260,8 +283,14 @@ func resourceHookUpdate(ctx context.Context, d *schema.ResourceData, m interface
 
 func resourceHookDelete(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	client := m.(Clients).httpClient
+
+	workspace := d.Get("workspace").(string)
+	if workspace == "" {
+		workspace = d.Get("owner").(string)
+	}
+
 	_, err := client.Delete(fmt.Sprintf("2.0/repositories/%s/%s/hooks/%s",
-		d.Get("owner").(string),
+		workspace,
 		d.Get("repository").(string),
 		url.PathEscape(d.Id()),
 	))

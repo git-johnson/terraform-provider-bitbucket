@@ -51,10 +51,17 @@ func resourceBranchingModel() *schema.Resource {
 		},
 
 		Schema: map[string]*schema.Schema{
-			"owner": {
+			"workspace": {
 				Type:     schema.TypeString,
 				Required: true,
 				ForceNew: true,
+			},
+			"owner": {
+				Type:       schema.TypeString,
+				Optional:   true,
+				ForceNew:   true,
+				Computed:   true,
+				Deprecated: "Use workspace instead",
 			},
 			"repository": {
 				Type:     schema.TypeString,
@@ -158,8 +165,13 @@ func resourceBranchingModelsPut(ctx context.Context, d *schema.ResourceData, m i
 		return diag.FromErr(err)
 	}
 
+	workspace := d.Get("workspace").(string)
+	if workspace == "" {
+		workspace = d.Get("owner").(string)
+	}
+
 	branchingModelReq, err := client.Put(fmt.Sprintf("2.0/repositories/%s/%s/branching-model/settings",
-		d.Get("owner").(string),
+		workspace,
 		d.Get("repository").(string),
 	), bytes.NewBuffer(bytedata))
 
@@ -177,7 +189,7 @@ func resourceBranchingModelsPut(ctx context.Context, d *schema.ResourceData, m i
 		return diag.FromErr(decodeerr)
 	}
 
-	d.SetId(fmt.Sprintf("%s/%s", d.Get("owner").(string), d.Get("repository").(string)))
+	d.SetId(fmt.Sprintf("%s/%s", workspace, d.Get("repository").(string)))
 
 	return resourceBranchingModelsRead(ctx, d, m)
 }
@@ -224,6 +236,7 @@ func resourceBranchingModelsRead(ctx context.Context, d *schema.ResourceData, m 
 
 	log.Printf("[DEBUG] Branching Model Response Decoded: %#v", branchingModel)
 
+	d.Set("workspace", owner)
 	d.Set("owner", owner)
 	d.Set("repository", repo)
 	d.Set("default_branch_deletion", branchingModel.DefaultBranchDeletion)
